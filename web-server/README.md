@@ -68,6 +68,8 @@ servidor será dado de baja y, a partir de ahora, los clientes serán los browse
 El único endpoint que expone el servidor es `HTTP GET http://direcciónIp:puerto/imagen.jpg`. 
 Un request a dicha URL deberá traer el archivo de imagen completo.
 
+![Screenshot 2025-02-27 at 15 44 18](https://github.com/user-attachments/assets/8fc3cce3-987f-4bc3-81f6-c461735a8b86)
+
 ### Iteración 5
 Como último paso, la implementación multithread del webserver deberá incluir un *pool* de threads cuyo 
 tamaño de *worker threads* será variable por línea de comando. Cuando se acepte una nueva conexión, 
