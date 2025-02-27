@@ -5,12 +5,6 @@
 **Año:** 2025  
 **Profesor:** Ing. Diego Marafetti
 
-<br>
-
-<br>
-
-***
-
 # Contenido
 
 - [Objetivos y definición](#objetivos-y-definición)
@@ -27,21 +21,21 @@
 El trabajo práctico se basa en la implementación del primer prototipo de un sistema distribuido que permita mostrar contenido al usuario implementando una versión simplificada del protocolo HTTP. Será una aplicación muy simple programada en C que se ejecutará sobre la plataforma Unix. Utilizará el protocolo HTTP v1.1 para aceptar como cliente a un browser (por ejemplo, Google Chrome o Firefox). Expondrá una serie de endpoints a través de los cuales los clientes podrán acceder a los recursos estáticos y dinámicos, aunque en principio solo habrá uno.
 
 Se espera que:
-- El alumno se familiarice con la API de Berkeley Sockets.
-- Entiendan la importancia de una norma o protocolo estándar en la comunicación entre procesos.
-- Dominen los problemas específicos de este tipo de implementaciones.
+- ✓ El alumno se familiarice con la API de Berkeley Sockets.
+- ✓ Entiendan la importancia de una norma o protocolo estándar en la comunicación entre procesos.
+- ✓ Dominen los problemas específicos de este tipo de implementaciones.
 
 **Algunas consideraciones extra:**
-- El lenguaje de programación que se utilizará será ANSI C.
-- El protocolo que se utilizará será TCP sobre IPv4.
-- No se pueden utilizar bibliotecas externas para manejar sockets. Solo se puede usar la API de Berkeley directamente.
+- ✓ El lenguaje de programación que se utilizará será ANSI C.
+- ✓ El protocolo que se utilizará será TCP sobre IPv4.
+- ✗ No se pueden utilizar bibliotecas externas para manejar sockets. Solo se puede usar la API de Berkeley directamente.
 
 > [!IMPORTANT]
 > Ver requerimientos y entorno de desarrollo
 
 <br>
 
-***
+---
 
 ## Entregas
 
