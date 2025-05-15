@@ -4,8 +4,58 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/select.h>
+#include <pthread.h>
 
 #define MAX_CLIENTS 10 //Define 10 como numero maximo de clientes
+#define HEARTBEAT_PORT 9999  // Puerto UDP para heartbeat
+
+void *heartbeat_server(void *arg) {
+    //Crea un socket UDP para enviar y recibir HEARTBEAT del cliente
+    int udp_socket = socket(AF_INET, SOCK_DGRAM, 0);
+    if (udp_socket < 0) {
+        perror("Error al crear socket UDP");
+        return NULL;
+    }
+    //Configuracion de direccion y puerto donde el server escuchara
+    struct sockaddr_in udp_addr = {0};
+    udp_addr.sin_family = AF_INET;
+    udp_addr.sin_addr.s_addr = INADDR_ANY;
+    udp_addr.sin_port = htons(HEARTBEAT_PORT);
+
+    //Se linkea el socket al puerto, si falla devuelve error y cierra socket
+    if (bind(udp_socket, (struct sockaddr*)&udp_addr, sizeof(udp_addr)) < 0) {
+        perror("Error en bind UDP");
+        close(udp_socket);
+        return NULL;
+    }
+
+    printf("Servidor UDP de heartbeat activo en el puerto %d...\n", HEARTBEAT_PORT);
+
+    //Define buffer para recibir msjs y estructura para almacenar la direccion del cliente
+    char buffer[16];
+    struct sockaddr_in client_addr;
+    socklen_t addr_len = sizeof(client_addr);
+
+    //LOOP
+    while (1) {
+        //Recibe un msj UDP del cliente y lo almacena en buffer
+        int bytes = recvfrom(udp_socket, buffer, sizeof(buffer), 0, (struct sockaddr*)&client_addr, &addr_len);
+        buffer[bytes] = '\0'; // Agrega terminador nulo
+        if (bytes > 0) {
+            printf("Mensaje recibido en el servidor UDP (%d bytes): %s\n", bytes, buffer);
+        }
+        //Si recibimos HEARTBEAT, entonces que devuelva OK
+        if (strcmp(buffer, "HEARTBEAT") == 0) {
+            printf("Enviando respuesta OK al cliente...\n");  // Depuración
+            sendto(udp_socket, "OK", 2, 0, (struct sockaddr*)&client_addr, addr_len);
+        }
+        
+
+    }
+
+    close(udp_socket);
+    return NULL;
+}
 
 int main(int argc, char* argv[]) {
     //Valida si se ingreso el numero correcto de argumentos, de lo contrario devuelve error
@@ -13,28 +63,25 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "Uso: %s <puerto>\n", argv[0]);
         return EXIT_FAILURE;
     }
-    //Convierte el puerto de cadena a entero
+
     int port = atoi(argv[1]);
-    //Se crea un socket server utilizando TCP
+    //Crea el socket TCP para aceptar clientes
     int server_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (server_socket < 0) {
         perror("Error al crear socket");
         return EXIT_FAILURE;
     }
-    //Se configura SO_REUSEADDR para reutilizar direcciones
-    int opt = 1;
-    setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    //Permite reutilizar la direccion evitando errores al reiniciar el servidor
+    setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
 
     struct sockaddr_in server_addr = {0};
-    //AF_INET: Familia de direcciones IPV4
     server_addr.sin_family = AF_INET;
-    //INADDR_ANY: Acepta conexiones de cualquier IP
     server_addr.sin_addr.s_addr = INADDR_ANY;
-    //htons(port): Convierte el puerto al formato de red
     server_addr.sin_port = htons(port);
-    //Se linkea el socket a la direccion y puerto configurados, si falla devuelve error y cierra socket
+    //Se linkea el socket al puerto, si falla devuelve error y cierra socket
     if (bind(server_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        perror("Error en bind");
+        perror("Error en bind TCP");
         close(server_socket);
         return EXIT_FAILURE;
     }
@@ -44,20 +91,20 @@ int main(int argc, char* argv[]) {
         close(server_socket);
         return EXIT_FAILURE;
     }
-    //Estructura para el conjunto de descriptores de archivo monitoreados
+
     fd_set readfds;
-    //Almacena los sockets de los clientes conectados
     int client_sockets[MAX_CLIENTS] = {0};
-    //Almacena el valor del descriptor de archivo mas alto
     int max_fd = server_socket;
 
-    printf("Servidor escuchando en el puerto %d...\n", port);
+    printf("Servidor TCP activo en el puerto %d...\n", port);
 
-    //LOOP
+    // **Inicia el servidor de heartbeat en un thread**
+    pthread_t hb_thread;
+    pthread_create(&hb_thread, NULL, heartbeat_server, NULL);
+    pthread_detach(hb_thread);
+
     while (1) {
-        //Limpia el conjunto de descriptores de archivos
         FD_ZERO(&readfds);
-        //Agrega el socket del servidor para monitorear nuevas conexiones
         FD_SET(server_socket, &readfds);
 
         for (int i = 0; i < MAX_CLIENTS; i++) {
@@ -68,15 +115,13 @@ int main(int argc, char* argv[]) {
                 max_fd = client_sockets[i];
             }
         }
-        //Mediante select se bloquea la ejecucion hasta que haya actividad en algun descriptor, si hay error se termine el loop
-        int activity = select(max_fd + 1, &readfds, NULL, NULL, NULL);
-        if (activity < 0) {
+
+        if (select(max_fd + 1, &readfds, NULL, NULL, NULL) < 0) {
             perror("Error en select");
             break;
         }
-
+        //Si el socket del servidor tiene actividad acepta nueva conexion
         if (FD_ISSET(server_socket, &readfds)) {
-        //Mediante accept acepta la conexion entrante
             int new_socket = accept(server_socket, NULL, NULL);
             if (new_socket < 0) {
                 perror("Error en accept");
@@ -84,7 +129,11 @@ int main(int argc, char* argv[]) {
             }
 
             printf("Nueva conexión aceptada: %d\n", new_socket);
-            //Guarda el nuevo cliente en el primer espacio disponible
+
+            int keepalive = 1;
+            setsockopt(new_socket, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+
+        //Añade el nuevo cliente a la lista de clientes activos
             for (int i = 0; i < MAX_CLIENTS; i++) {
                 if (client_sockets[i] == 0) {
                     client_sockets[i] = new_socket;
@@ -92,11 +141,14 @@ int main(int argc, char* argv[]) {
                 }
             }
         }
-        //Verifica si algun cliente envio datos
+        //Revisa si algun cliente ha enviado datos
         for (int i = 0; i < MAX_CLIENTS; i++) {
             if (FD_ISSET(client_sockets[i], &readfds)) {
                 char buffer[16] = {0};
                 int bytes = recv(client_sockets[i], buffer, sizeof(buffer), 0);
+
+                printf("Bytes recibidos: %d\n", bytes);
+                printf("Mensaje recibido: '%s'\n", buffer);
 
                 if (bytes <= 0) {
                     printf("Cliente desconectado: %d\n", client_sockets[i]);
@@ -104,7 +156,8 @@ int main(int argc, char* argv[]) {
                     client_sockets[i] = 0;
                 } else {
                     printf("Recibido de %d: %s\n", client_sockets[i], buffer);
-                 //Si recibimos PING, entonces que devuelva PONG
+                    buffer[strcspn(buffer, "\r\n")] = '\0';
+                    //Si el cliente envia PING, el servidor responde PONG
                     if (strcmp(buffer, "PING") == 0) {
                         send(client_sockets[i], "PONG", 4, 0);
                     }
@@ -112,7 +165,7 @@ int main(int argc, char* argv[]) {
             }
         }
     }
-    //Cierra el socket del servidor antes de finalizar
+
     close(server_socket);
     return 0;
 }

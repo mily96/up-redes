@@ -3,80 +3,76 @@
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-#include <sys/select.h>
+
+#define HEARTBEAT_PORT 9999 //Puerto al que el cliente enviara HEARTBEAT
+#define HEARTBEAT_INTERVAL 5 // Intervalo en segundos entre cada HEARTBEAT
+#define MAX_ATTEMPTS 3        // Intentos antes de considerar caída del servidor
 
 int main(int argc, char* argv[]) {
-    //Valida si se ingresaron 2 argumentos ademas del nombre del programa, de lo contrario devuelve error
-    if (argc != 3) {
-        fprintf(stderr, "Uso: %s <IP> <puerto>\n", argv[0]);
+    //Valida si se ingreso la IP del servidor, de lo contrario devuelve error
+    if (argc != 2) {
+        fprintf(stderr, "Uso: %s <IP del servidor>\n", argv[0]);
         return EXIT_FAILURE;
     }
-    //Creacion del socket
-    //AF_INET: Familia de direcciones IPV4
-    //SOCK_STREAM: Tipo de socket para conexiones TCP
-    //0: Por default TCP
-    int client_socket = socket(AF_INET, SOCK_STREAM, 0);
+    //Creacion socket UDP
+    int udp_socket = socket(AF_INET, SOCK_DGRAM, 0);
     //Si falla la creacion, devuelve error y termina el programa
-    if (client_socket < 0) {
-        perror("Error al crear socket");
+    if (udp_socket < 0) {
+        perror("Error al crear socket UDP");
         return EXIT_FAILURE;
     }
+
+    //Se establece un timeout de 5 segs para evitar bloqueos en recvfrom() mejorando la deteccion de fallos
+    struct timeval timeout;
+    timeout.tv_sec = 5; 
+    timeout.tv_usec = 0;
+    setsockopt(udp_socket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+
     //Se declara e inicializa en 0 server_addr para almacenar la direccion del servidor
     struct sockaddr_in server_addr = {0};
     //Se establece la familia de direcciones en AF_INET
     server_addr.sin_family = AF_INET;
-    //Convierte el puerto proporcionado como argumento de texto a numero entero mediante la funcion atoi y la transforma al formato de red mediante la funcion htons
-    server_addr.sin_port = htons(atoi(argv[2]));
-    //Convierte la direccion IP proporcionada de texto a binario mediante la funcion inet_pton y lo almacena en sin_addr
+    server_addr.sin_port = htons(HEARTBEAT_PORT);
+    //Define la dirección del servidor, el puerto y convierte la IP de texto a binario
     inet_pton(AF_INET, argv[1], &server_addr.sin_addr);
-    //Intenta conectar el socket con el servidor, si falla muestra error y termina programa
-    if (connect(client_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        perror("Error en connect");
-        close(client_socket);
-        return EXIT_FAILURE;
-    }
 
-    printf("Conectado al servidor. Escriba 'PING' para probar.\n");
-    //Declara un conjunto de descriptores de archivos que seran monitoreados por select
-    fd_set readfds;
+    int attempts = 0; //Inicializa contador en 0
     //LOOP
     while (1) {
-        //FD_ZERO: Limpia el conjunto de descriptores de archivo
-        //FD_SET(STDIN_FILENO, &readfds): Agrega la entrada estandar para monitorear el teclado
-        //FD_SET(client_socket, &readfds): Agrega el socket del servidor para monitorear datos recibidos
-        FD_ZERO(&readfds);
-        FD_SET(STDIN_FILENO, &readfds);
-        FD_SET(client_socket, &readfds);
+        //Envia HEARTBEAT al servidor
+        printf("Enviando mensaje: '%s' (Tamaño: %lu bytes)\n", "HEARTBEAT", strlen("HEARTBEAT"));
+        sendto(udp_socket, "HEARTBEAT", 9, 0, (struct sockaddr*)&server_addr, sizeof(server_addr));
+        printf("Heartbeat enviado al servidor.\n");
 
-        int activity = select(client_socket + 1, &readfds, NULL, NULL, NULL);
-        //Si ocurre un error, devuelve mensaje y termina loop
-        if (activity < 0) {
-            perror("Error en select");
-            break;
+
+        char buffer[16] = {0};
+
+        struct sockaddr_in from_addr;
+        socklen_t addr_len = sizeof(from_addr);
+
+        int bytes = recvfrom(udp_socket, buffer, sizeof(buffer), 0, (struct sockaddr*)&from_addr, &addr_len);
+        buffer[bytes] = '\0';
+        printf("Bytes recibidos: %d, Mensaje: %s\n", bytes, buffer);
+
+        //Si recibo OK, el servidor esta operativo
+        if (bytes > 0 && strcmp(buffer, "OK") == 0) {
+            printf("✅ Servidor operativo.\n");
+            attempts = 0;
+        //No hubo respuesta y se va incrementando el contador
+        } else if (bytes <= 0) {
+            attempts++;
+     
+            printf("Sin respuesta del servidor (Intento %d)\n", attempts);
         }
-        //FD_ISSET: Verifica si se ingreso algo por teclado
-        //fgets: Lee el msj ingresado
-        if (FD_ISSET(STDIN_FILENO, &readfds)) {
-            char buffer[16];
-            fgets(buffer, sizeof(buffer), stdin);
-            buffer[strcspn(buffer, "\n")] = '\0';  // Elimina el salto de línea para evitar problemas con el envio
-            //Envia el msj al servidor
-            send(client_socket, buffer, strlen(buffer), 0);
+        //Si supera la cantidad de intentos devuelve este mensaje
+        if (attempts >= MAX_ATTEMPTS) {
+
+            printf("⚠️ No hay respuesta del servidor tras %d intentos. Posible caída.\n", MAX_ATTEMPTS);
         }
-        //FD_ISSET: Verifica si el servidor envio alguna respuesta
-        if (FD_ISSET(client_socket, &readfds)) {
-            char buffer[16] = {0};
-            //Recibe la respuesta del servidor
-            int bytes = recv(client_socket, buffer, sizeof(buffer), 0);
-            if (bytes <= 0) {
-                printf("Conexión cerrada por el servidor.\n");
-                break;
-            }
-            //Imprime la respuesta del servidor
-            printf("Respuesta del servidor: %s\n", buffer);
-        }
+
+        sleep(HEARTBEAT_INTERVAL); //Pausa el programa por HEARTBEAT_INTERVAL segundos antes de enviar el siguiente HEARTBEAT
     }
-    //Se cierra el socket para liberar recursos
-    close(client_socket);
+    //Se cierra el socket
+    close(udp_socket);
     return 0;
 }
