@@ -67,6 +67,6 @@ Una vez finalizado se puede conectarse por TTY al container con el siguiente com
 ### Iteracion 4
 1) Compilar el servidor desde una terminal: **gcc -o servidor servidor.c**
 3) Ejecutar el servidor: **./servidor 8080**
-4) Ir al navegador y poner la siguiente url: **localhost:8080/imagen.jpg**, debera aparecer la siguiente imagen
+4) Ir al navegador y poner la siguiente url: **localhost:8080/Dogs.jpg**, debera aparecer la siguiente imagen
 
 <img src="./simple-server/Dogs.jpg">
